@@ -3,6 +3,7 @@
 
 # But track these:
 !.gitignore
+!README.md
 !scripts/
 !scripts/*
 !.gitkeep
