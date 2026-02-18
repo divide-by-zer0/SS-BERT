@@ -1,0 +1,18 @@
+# Ignore everything by default
+*
+
+# But track these:
+!.gitignore
+!scripts/
+!scripts/*
+!.gitkeep
+
+# Allow .gitkeep in any subdirectory
+!*/
+!**/.gitkeep
+
+# Always ignore
+.DS_Store
+venv/
+__pycache__/
+*.pyc
