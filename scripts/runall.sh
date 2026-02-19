@@ -104,4 +104,5 @@ python scripts/score_splice_sites_tsv.py \
  --num_workers 0
 python scripts/min_intron_sum.py \
  --in_tsv evaluate/Mmus/40bp.scored.tsv \
- --out_tsv evaluate/Mmus/40bp_min.tsv
+ --out_tsv evaluate/Mmus/40bp_min.tsv \
+ --combine product

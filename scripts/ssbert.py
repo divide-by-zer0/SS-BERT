@@ -327,6 +327,23 @@ class SingleTaskSpliceModel(nn.Module):
         return logits
 
 
+class FocalLoss(nn.Module):
+    """Binary focal loss from logits, with optional pos_weight."""
+    def __init__(self, gamma: float = 3.0, pos_weight: torch.Tensor = None):
+        super().__init__()
+        self.gamma = gamma
+        self.pos_weight = pos_weight
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        bce = nn.functional.binary_cross_entropy_with_logits(
+            logits, targets, pos_weight=self.pos_weight, reduction="none"
+        )
+        probs = torch.sigmoid(logits)
+        pt = targets * probs + (1 - targets) * (1 - probs)
+        focal_weight = (1 - pt) ** self.gamma
+        return (focal_weight * bce).mean()
+
+
 # --------------------------
 # Train / eval
 # --------------------------
@@ -433,6 +450,12 @@ def main():
                     help="Optional: manual positive class weight for BCE (e.g. 6.0). "
                          "If not set, will be computed from training split as neg/pos.")
     
+    #Optional: loss function
+    ap.add_argument("--loss", choices=["bce", "focal"], default="focal",
+                help="Loss function: bce (BCEWithLogitsLoss) or focal (Focal Loss)")
+    ap.add_argument("--focal_gamma", type=float, default=3.0,
+                help="Gamma for focal loss (only used when --loss focal)")
+
     #Optional: checkpoint filename
     ap.add_argument("--ckpt_name", type=str, default="best.pt",
                 help="Checkpoint filename to save in out_dir (default: best.pt)")
@@ -526,9 +549,13 @@ def main():
         pos_weight = (train_neg / max(1, train_pos)) if train_pos > 0 else 1.0
         pos_weight = np.sqrt(pos_weight)  # use sqrt of ratio as a softer weighting (tune as needed)
     pos_weight_t = torch.tensor([pos_weight], dtype=torch.float32, device=device)
-    print(f"Using pos_weight={pos_weight:.4f} in BCEWithLogitsLoss")
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_t)
+    if args.loss == "focal":
+        criterion = FocalLoss(gamma=args.focal_gamma, pos_weight=pos_weight_t)
+        print(f"Using FocalLoss(gamma={args.focal_gamma}, pos_weight={pos_weight:.4f})")
+    else:
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_t)
+        print(f"Using BCEWithLogitsLoss(pos_weight={pos_weight:.4f})")
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
         # ---- Initial (pre-training) validation metrics ----
@@ -583,18 +610,6 @@ def main():
         train_loss = running_loss / max(1, len(train_loader))
         val_metrics = evaluate(model, val_loader, device=device)
 
-        # # Prefer ROC-AUC if available, else PR-AUC, else accuracy
-        # if "roc_auc" in val_metrics:
-        #     score = val_metrics["roc_auc"]
-        #     score_name = "roc_auc"
-        # elif "pr_auc" in val_metrics:
-        #     score = val_metrics["pr_auc"]
-        #     score_name = "pr_auc"
-        # else:
-        #     score = val_metrics.get("acc@0.5", 0.0)
-        #     score_name = "acc@0.5"
-
-        # Prefer PR-AUC (best for imbalanced), else ROC-AUC, else accuracy
         if "pr_auc" in val_metrics:
             score = val_metrics["pr_auc"]
             score_name = "pr_auc"
