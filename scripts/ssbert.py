@@ -456,6 +456,13 @@ def main():
     ap.add_argument("--focal_gamma", type=float, default=3.0,
                 help="Gamma for focal loss (only used when --loss focal)")
 
+    #Optional: learning rate scheduler
+    ap.add_argument("--scheduler", choices=["none", "cosine_warm"], default="none",
+                help="LR scheduler: none (manual cosine, current default) or "
+                     "cosine_warm (CosineAnnealingWarmRestarts with linear warmup)")
+    ap.add_argument("--warmup_frac", type=float, default=0.05,
+                help="Fraction of total steps for linear warmup (only with --scheduler cosine_warm)")
+
     #Optional: checkpoint filename
     ap.add_argument("--ckpt_name", type=str, default="best.pt",
                 help="Checkpoint filename to save in out_dir (default: best.pt)")
@@ -573,12 +580,24 @@ def main():
         init_score_name = "acc@0.5"
     print(f"Model score before training ({init_score_name}): {init_score:.4f}\n")
 
-    # Simple cosine schedule
+    # LR schedule setup
     total_steps = args.epochs * max(1, len(train_loader))
 
-    def lr_at(step):
-        min_lr = args.lr * 0.1
-        return min_lr + 0.5 * (args.lr - min_lr) * (1 + math.cos(math.pi * step / total_steps))
+    if args.scheduler == "cosine_warm":
+        warmup_steps = max(1, int(total_steps * args.warmup_frac))
+        def lr_lambda(step):
+            if step < warmup_steps:
+                return step / warmup_steps  # linear warmup
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return 0.05 + 0.5 * (1.0 - 0.05) * (1 + math.cos(math.pi * progress))  # cosine decay to 5% of peak
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        print(f"Using cosine_warm scheduler: {warmup_steps} warmup steps, {total_steps} total steps")
+    else:
+        # Original manual cosine (no warmup, decays to 10% of peak)
+        scheduler = None
+        def lr_at(step):
+            min_lr = args.lr * 0.1
+            return min_lr + 0.5 * (args.lr - min_lr) * (1 + math.cos(math.pi * step / total_steps))
 
     best_val_score = -1e9
     global_step = 0
@@ -601,9 +620,12 @@ def main():
             optimizer.step()
 
             global_step += 1
-            lr = lr_at(global_step)
-            for pg in optimizer.param_groups:
-                pg["lr"] = lr
+            if scheduler is not None:
+                scheduler.step()
+            else:
+                lr = lr_at(global_step)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = lr
 
             running_loss += loss.item()
 
