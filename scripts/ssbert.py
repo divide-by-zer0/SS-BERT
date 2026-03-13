@@ -558,8 +558,8 @@ def main():
     pos_weight_t = torch.tensor([pos_weight], dtype=torch.float32, device=device)
 
     if args.loss == "focal":
-        criterion = FocalLoss(gamma=args.focal_gamma, pos_weight=pos_weight_t)
-        print(f"Using FocalLoss(gamma={args.focal_gamma}, pos_weight={pos_weight:.4f})")
+        criterion = FocalLoss(gamma=args.focal_gamma)
+        print(f"Using FocalLoss(gamma={args.focal_gamma}")
     else:
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_t)
         print(f"Using BCEWithLogitsLoss(pos_weight={pos_weight:.4f})")
